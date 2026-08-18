@@ -1,14 +1,22 @@
 import requests
 
-# 你的专属 SendKey 已经自动填入
-send_key = "SCT400318Tb9hYe4hHbchclEqyRTV3o2wZ"
-url = f"https://sctapi.ftqq.com/{send_key}.send"
+token = "5758507929d44bf8b067c06781bcbe84"
+url = "https://www.pushplus.plus/send"
 
-# 消息的标题和内容
-data = {
-    "title": "股票选股通知",
-    "desp": "选股脚本测试成功！微信通道已经打通。",
+payload = {
+    "token": token,
+    "title": "量化脚本连通性测试",
+    "content": "如果你看到这条消息，说明你的 PushPlus Token 配置完全正确！",
+    "template": "html"
 }
 
-response = requests.post(url, data=data)
-print("推送结果：", response.text)
+headers = {
+    "Content-Type": "application/json"
+}
+
+try:
+    res = requests.post(url, json=payload, headers=headers, timeout=10)
+    print(f"状态码: {res.status_code}")
+    print(f"返回内容: {res.text}")
+except Exception as e:
+    print(f"请求异常: {e}")
