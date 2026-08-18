@@ -3,26 +3,25 @@ name: Stock Picker Daily Run
 on:
   workflow_dispatch: # 支持手动触发
   schedule:
-    - cron: '30 22 * * *' # 每天北京时间早上 6:30 自动运行（可根据需要调整时间）
+    - cron: '30 22 * * 1-5' # 交易日定时运行
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
 
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install yfinance pandas numpy requests pytz; fi
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      - name: Run main script
-        env:
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-        run: python main.py
+    - name: Run main script
+      run: python main.py
