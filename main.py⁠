@@ -1,0 +1,30 @@
+import akshare as ak
+import pandas as pd
+import requests
+
+def send_wechat_notification(title, content):
+    send_key = 'SCT400318Tb9hYe4hHbchclEqyRTV3o2wZ'
+    url = f'https://sctapi.ftqq.com/{send_key}.send'
+    data = {'title': title, 'desp': content}
+    try:
+        response = requests.post(url, data=data, timeout=10)
+        print('推送结果:', response.text)
+    except Exception as e:
+        print('推送异常:', str(e))
+
+def stock_picker():
+    print('正在拉取行情数据...')
+    try:
+        df = ak.stock_zh_a_spot_em()
+        selected = df[(df['涨幅'] > 5.0) & (df['成交额'] > 100000000)]
+        if not selected.empty:
+            result = selected.head(10)[['代码', '名称', '最新价', '涨幅', '成交额']].to_markdown(index=False)
+        else:
+            result = '今日暂无符合条件的股票。'
+    except Exception as e:
+        result = f'数据拉取失败: {str(e)}'
+    return result
+
+if __name__ == '__main__':
+    content = stock_picker()
+    send_wechat_notification('股票选股通知', content)
