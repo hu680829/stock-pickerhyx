@@ -1,9 +1,9 @@
 name: Stock Picker Daily Run
 
 on:
-  workflow_dispatch: # 支持手动触发
+  workflow_dispatch:
   schedule:
-    - cron: '30 22 * * 1-5' # 交易日定时运行
+    - cron: '30 22 * * 1-5'
 
 jobs:
   run-script:
