@@ -1,10 +1,9 @@
 import requests
 
-url = "http://www.pushplus.plus/send"
-data = {
-    "token": "5758507929d44bf8b067c06781bcbe84",
-    "title": "手机测试",
-    "content": "这是一条手机网页端测试消息",
-}
-res = requests.post(url, json=data)
-print(res.text)
+# 将下面这行里的 URL 换成你的 Bark 链接
+bark_url = (
+    "https://api.day.app/eYYVUfX3NKDcU9j6FGPMon/股票选股通知/选股脚本运行成功！"
+)
+
+response = requests.get(bark_url)
+print(response.text)
