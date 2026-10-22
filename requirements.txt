@@ -2,3 +2,4 @@ requests
 akshare
 pandas
 tabulate
+yfinance
