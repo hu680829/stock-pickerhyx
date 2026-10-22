@@ -140,6 +140,8 @@ def evaluate_macro_and_danger_signals():
 
   vix = safe_yf_download("^VIX", period="2d")
   if vix is not None and not vix.empty:
+  else:
+    data_fetch_success = False
     if vix["Close"].iloc[-1] > 22:
       danger_count += 1
       danger_signals.append(
@@ -148,6 +150,8 @@ def evaluate_macro_and_danger_signals():
 
   dxy = safe_yf_download("DX-Y.NYB", period="5d")
   if dxy is not None and len(dxy) >= 2:
+  else:
+    data_fetch_success = False
     if dxy["Close"].iloc[-1] > dxy["Close"].iloc[0] * 1.006:
       danger_count += 1
       danger_signals.append(
@@ -156,6 +160,8 @@ def evaluate_macro_and_danger_signals():
 
   sp500_long = safe_yf_download("^GSPC", period="250d")
   if sp500_long is not None and len(sp500_long) >= 200:
+  else:
+    data_fetch_success = False
     if sp500_long["Close"].iloc[-1] < sp500_long["Close"].iloc[-200:].mean():
       danger_count += 1
       danger_signals.append(
@@ -164,12 +170,16 @@ def evaluate_macro_and_danger_signals():
 
   cnh = safe_yf_download("USDCNH=X", period="5d")
   if cnh is not None and len(cnh) >= 2:
+  else:
+    data_fetch_success = False
     if cnh["Close"].iloc[-1] > cnh["Close"].iloc[0] * 1.008:
       danger_count += 1
       danger_signals.append("🔴 **离岸人民币贬值压力** (USD/CNH短期走高，A股承压)")
 
   hyg = safe_yf_download("HYG", period="5d")
   if hyg is not None and len(hyg) >= 2:
+  else:
+    data_fetch_success = False
     if hyg["Close"].iloc[-1] < hyg["Close"].iloc[0] * 0.992:
       danger_count += 1
       danger_signals.append(
@@ -178,6 +188,8 @@ def evaluate_macro_and_danger_signals():
 
   btc = safe_yf_download("BTC-USD", period="5d")
   if btc is not None and len(btc) >= 2:
+  else:
+    data_fetch_success = False
     if btc["Close"].iloc[-1] < btc["Close"].iloc[0] * 0.95:
       danger_count += 1
       danger_signals.append("🔴 **加密市场动能骤降 (BTC短线重挫)**")
@@ -321,56 +333,87 @@ def evaluate_portfolio_stop_loss_and_buy_plan(danger_count, portfolio_weights):
     except Exception as e:
       print(f"Error evaluating plan for {ticker}: {e}")
 
+  # Cap the sum of all suggested buys, not just each individual position.
+  total_suggested = sum(float(item["suggest_pos"].split("%")[0]) for item in buy_recommendations)
+  if total_suggested > max_allocate_pct and total_suggested > 0:
+    scale = max_allocate_pct / total_suggested
+    for item in buy_recommendations:
+      original = float(item["suggest_pos"].split("%")[0])
+      item["suggest_pos"] = f"{original * scale:.1f}% 总仓位"
   return max_allocate_pct, strategy_note, stop_loss_alerts, buy_recommendations
 
 
 def evaluate_portfolio_fx_and_drift():
-  """【进阶】多币种收益折算 + 再平衡死区（Deadband）与摩擦控制引擎"""
-  usd_cnh = 7.20
-  cnh_hist = safe_yf_download("USDCNH=X", period="2d")
-  if cnh_hist is not None and not cnh_hist.empty:
-    usd_cnh = cnh_hist["Close"].iloc[-1]
+  """Compute portfolio return and drift with FX conversion and fail-closed data checks."""
+  fx_hist = safe_yf_download("USDCNH=X", period="5d")
+  if fx_hist is None or len(fx_hist) < 2:
+    # Do not fabricate a fixed FX rate: fail closed rather than publish misleading P&L.
+    return [], 0.0, None, [{"ticker": "USDCNH=X", "drift": "N/A", "target": "FX DATA MISSING"}]
+
+  fx_close = fx_hist["Close"].dropna()
+  if len(fx_close) < 2 or fx_close.iloc[0] <= 0 or fx_close.iloc[-1] <= 0:
+    return [], 0.0, None, [{"ticker": "USDCNH=X", "drift": "N/A", "target": "INVALID FX DATA"}]
+  usd_cnh = float(fx_close.iloc[-1])
+  fx_return = usd_cnh / float(fx_close.iloc[0]) - 1.0
+
+  rows = []
+  missing = []
+  for ticker, target_weight in MY_PORTFOLIO_WEIGHTS.items():
+    hist = safe_yf_download(ticker, period="5d")
+    if hist is None:
+      missing.append(ticker)
+      continue
+    close = hist["Close"].dropna()
+    if len(close) < 2 or float(close.iloc[0]) <= 0 or float(close.iloc[-1]) <= 0:
+      missing.append(ticker)
+      continue
+    local_return = float(close.iloc[-1]) / float(close.iloc[0]) - 1.0
+    # Yahoo prices for US-listed assets and BTC are USD-denominated; express their
+    # returns in RMB using the same-period USD/CNH move. Chinese index stays RMB.
+    cny_return = ((1.0 + local_return) * (1.0 + fx_return) - 1.0
+                  if ticker != "000300.SS" else local_return)
+    rows.append({
+        "ticker": ticker,
+        "target_weight": float(target_weight),
+        "price": float(close.iloc[-1]),
+        "local_return": local_return,
+        "cny_return": cny_return,
+    })
+
+  if missing or not rows:
+    # Never report a partial portfolio as if all target holdings were present.
+    alerts = [{"ticker": t, "drift": "N/A", "target": "DATA MISSING"} for t in missing]
+    return [], 0.0, usd_cnh, alerts
+
+  weight_sum = sum(row["target_weight"] for row in rows)
+  if weight_sum <= 0:
+    return [], 0.0, usd_cnh, [{"ticker": "PORTFOLIO", "drift": "N/A", "target": "INVALID WEIGHTS"}]
+  weighted_return = sum(row["target_weight"] * row["cny_return"] for row in rows) / weight_sum
+  gross_value = sum(row["target_weight"] * (1.0 + row["cny_return"]) for row in rows)
+  if gross_value <= 0:
+    return [], 0.0, usd_cnh, [{"ticker": "PORTFOLIO", "drift": "N/A", "target": "INVALID VALUE"}]
 
   portfolio_results = []
-  total_weighted_change_rmb = 0.0
   rebalance_alerts = []
-
-  for ticker, target_weight in MY_PORTFOLIO_WEIGHTS.items():
-    hist = safe_yf_download(ticker, period="2d")
-    if hist is not None and len(hist) >= 2:
-      price = hist["Close"].iloc[-1]
-      prev_close = hist["Close"].iloc[0]
-      change_pct = ((price - prev_close) / prev_close) * 100
-      weighted_impact = change_pct * target_weight
-      total_weighted_change_rmb += weighted_impact
-
-      # 模拟资产当前实际权重估算（基准目标权重 ± 近期涨跌偏差）
-      estimated_current_weight = target_weight * (1 + change_pct / 100)
-      weight_drift = (
-          estimated_current_weight - target_weight
-      ) * 100  # 绝对百分比偏差
-
-      # 【再平衡死区判定】：只有当资产权重绝对偏离超过 ±4.5% 时，才触发调仓提醒，避免过度交易
-      if abs(weight_drift) >= 4.5:
-        rebalance_alerts.append({
-            "ticker": ticker,
-            "drift": f"{weight_drift:+.1f}%",
-            "target": f"{target_weight*100:.0f}%",
-        })
-
-      display_name = (
-          "SGOV (现金/超短债固收)" if ticker == "SGOV" else ticker
-      )
-      portfolio_results.append({
-          "ticker": display_name,
-          "target_weight": f"{target_weight*100:.0f}%",
-          "price": f"{price:,.2f}",
-          "change": f"{change_pct:+,.2f}%",
-          "weighted_impact": f"{weighted_impact:+,.2f}%",
+  for row in rows:
+    target = row["target_weight"] / weight_sum
+    current_weight = row["target_weight"] * (1.0 + row["cny_return"]) / gross_value
+    drift_pp = (current_weight - target) * 100.0
+    if abs(drift_pp) >= 4.5:
+      rebalance_alerts.append({
+          "ticker": row["ticker"],
+          "drift": f"{drift_pp:+.2f} percentage points",
+          "target": f"{target * 100:.1f}%",
       })
-
-  return portfolio_results, total_weighted_change_rmb, usd_cnh, rebalance_alerts
-
+    display_name = "SGOV (现金/超短债固收)" if row["ticker"] == "SGOV" else row["ticker"]
+    portfolio_results.append({
+        "ticker": display_name,
+        "target_weight": f"{target * 100:.1f}%",
+        "price": f"{row['price']:,.2f}",
+        "change": f"{row['local_return'] * 100:+,.2f}%",
+        "weighted_impact": f"{row['cny_return'] * target * 100:+,.2f}%",
+    })
+  return portfolio_results, weighted_return * 100.0, usd_cnh, rebalance_alerts
 
 def fetch_single_macro_item(item):
   ticker, name = item
