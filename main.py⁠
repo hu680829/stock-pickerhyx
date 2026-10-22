@@ -510,9 +510,10 @@ def generate_master_strategy_report(
   html = f"{css}<h2>📈 灿灿顶级对冲基金级量化终端</h2>"
   html += f"<div class='greeting-card'><b>💌 每日小情话：</b><br>{greeting_text}</div>"
   html += market_status_banner
+  usd_cnh_text = f"{usd_cnh:.4f}" if usd_cnh is not None else "不可用"
   html += (
       f"<p class='meta-text'>收盘播报时间（北京时间）：{now_str} | 实时美元汇率"
-      f" (USD/CNH): {usd_cnh:.4f}</p>"
+      f" (USD/CNH): {usd_cnh_text}</p>"
   )
 
   html += (
