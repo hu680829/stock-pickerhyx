@@ -1,5 +1,6 @@
 name: Stock Picker
 on:
+  pull_request:
   workflow_dispatch:
   schedule:
     - cron: "30 23 * * 1-5"
