@@ -123,101 +123,73 @@ def calculate_rsi(series, period=14):
 
 
 def evaluate_macro_and_danger_signals():
-  """【机构级全景宏观、流动性与风险扫描】"""
+  """Scan macro risks; missing critical inputs trigger a conservative data-quality warning."""
   danger_count = 0
   danger_signals = []
-  data_fetch_success = True
+  critical_missing = []
 
-  tnx = safe_yf_download("^TNX", period="5d")
-  if tnx is not None and len(tnx) >= 2:
-    if tnx["Close"].iloc[-1] > tnx["Close"].iloc[0] * 1.01:
-      danger_count += 1
-      danger_signals.append(
-          "🔴 **美债收益率短期走高** (全球资产之锚承压，成长股估值受限)"
-      )
-  else:
-    data_fetch_success = False
+  def load(ticker, period, minimum=2):
+    hist = safe_yf_download(ticker, period=period)
+    if hist is None or len(hist) < minimum or "Close" not in hist:
+      critical_missing.append(ticker)
+      return None
+    close = hist["Close"].dropna()
+    if len(close) < minimum:
+      critical_missing.append(ticker)
+      return None
+    return close
 
-  vix = safe_yf_download("^VIX", period="2d")
-  if vix is not None and not vix.empty:
-  else:
-    data_fetch_success = False
-    if vix["Close"].iloc[-1] > 22:
-      danger_count += 1
-      danger_signals.append(
-          f"🔴 **VIX恐慌指数偏高** (当前值: {vix['Close'].iloc[-1]:.2f}，市场情绪不稳定)"
-      )
+  tnx = load("^TNX", "5d")
+  if tnx is not None and tnx.iloc[0] > 0 and tnx.iloc[-1] > tnx.iloc[0] * 1.01:
+    danger_count += 1
+    danger_signals.append("🔴 **美债收益率短期走高** (成长股估值承压)")
 
-  dxy = safe_yf_download("DX-Y.NYB", period="5d")
-  if dxy is not None and len(dxy) >= 2:
-  else:
-    data_fetch_success = False
-    if dxy["Close"].iloc[-1] > dxy["Close"].iloc[0] * 1.006:
-      danger_count += 1
-      danger_signals.append(
-          f"🔴 **美元指数显著走强** (当前值: {dxy['Close'].iloc[-1]:.2f}，非美资产承压)"
-      )
+  vix = load("^VIX", "2d")
+  if vix is not None and vix.iloc[-1] > 22:
+    danger_count += 1
+    danger_signals.append(f"🔴 **VIX恐慌指数偏高** (当前值: {vix.iloc[-1]:.2f})")
 
-  sp500_long = safe_yf_download("^GSPC", period="250d")
-  if sp500_long is not None and len(sp500_long) >= 200:
-  else:
-    data_fetch_success = False
-    if sp500_long["Close"].iloc[-1] < sp500_long["Close"].iloc[-200:].mean():
-      danger_count += 1
-      danger_signals.append(
-          "🔴 **标普500跌破200日均线** (长线趋势转弱，进入熊市防御区间)"
-      )
+  dxy = load("DX-Y.NYB", "5d")
+  if dxy is not None and dxy.iloc[0] > 0 and dxy.iloc[-1] > dxy.iloc[0] * 1.006:
+    danger_count += 1
+    danger_signals.append(f"🔴 **美元指数显著走强** (当前值: {dxy.iloc[-1]:.2f})")
 
-  cnh = safe_yf_download("USDCNH=X", period="5d")
-  if cnh is not None and len(cnh) >= 2:
-  else:
-    data_fetch_success = False
-    if cnh["Close"].iloc[-1] > cnh["Close"].iloc[0] * 1.008:
-      danger_count += 1
-      danger_signals.append("🔴 **离岸人民币贬值压力** (USD/CNH短期走高，A股承压)")
+  sp500 = load("^GSPC", "250d", 200)
+  if sp500 is not None and sp500.iloc[-1] < sp500.iloc[-200:].mean():
+    danger_count += 1
+    danger_signals.append("🔴 **标普500跌破200日均线** (长线趋势转弱)")
 
-  hyg = safe_yf_download("HYG", period="5d")
-  if hyg is not None and len(hyg) >= 2:
-  else:
-    data_fetch_success = False
-    if hyg["Close"].iloc[-1] < hyg["Close"].iloc[0] * 0.992:
-      danger_count += 1
-      danger_signals.append(
-          "🔴 **高收益债(HYG)出现流动性抛压** (信用利差走阔)"
-      )
+  cnh = load("USDCNH=X", "5d")
+  if cnh is not None and cnh.iloc[0] > 0 and cnh.iloc[-1] > cnh.iloc[0] * 1.008:
+    danger_count += 1
+    danger_signals.append("🔴 **离岸人民币贬值压力** (USD/CNH短期走高)")
 
-  btc = safe_yf_download("BTC-USD", period="5d")
-  if btc is not None and len(btc) >= 2:
-  else:
-    data_fetch_success = False
-    if btc["Close"].iloc[-1] < btc["Close"].iloc[0] * 0.95:
-      danger_count += 1
-      danger_signals.append("🔴 **加密市场动能骤降 (BTC短线重挫)**")
+  hyg = load("HYG", "5d")
+  if hyg is not None and hyg.iloc[0] > 0 and hyg.iloc[-1] < hyg.iloc[0] * 0.992:
+    danger_count += 1
+    danger_signals.append("🔴 **高收益债(HYG)出现流动性抛压**")
 
-  gold = safe_yf_download("GC=F", period="5d")
-  copper = safe_yf_download("HG=F", period="5d")
-  if (
-      gold is not None
-      and copper is not None
-      and len(gold) >= 2
-      and len(copper) >= 2
-  ):
-    g_ret = (gold["Close"].iloc[-1] - gold["Close"].iloc[0]) / gold["Close"].iloc[0]
-    c_ret = (
-        copper["Close"].iloc[-1] - copper["Close"].iloc[0]
-    ) / copper["Close"].iloc[0]
-    if g_ret - c_ret > 0.03:
+  btc = load("BTC-USD", "5d")
+  if btc is not None and btc.iloc[0] > 0 and btc.iloc[-1] < btc.iloc[0] * 0.95:
+    danger_count += 1
+    danger_signals.append("🔴 **加密市场动能骤降 (BTC短线重挫)**")
+
+  gold = load("GC=F", "5d")
+  copper = load("HG=F", "5d")
+  if gold is not None and copper is not None and gold.iloc[0] > 0 and copper.iloc[0] > 0:
+    gold_return = gold.iloc[-1] / gold.iloc[0] - 1
+    copper_return = copper.iloc[-1] / copper.iloc[0] - 1
+    if gold_return - copper_return > 0.03:
       danger_count += 1
       danger_signals.append("🔴 **跨资产背离：金铜比显著走阔** (滞胀预期抬头)")
 
-  if not data_fetch_success and danger_count == 0:
-    danger_count = 1
+  if critical_missing:
+    danger_count += 1
+    tickers = ", ".join(sorted(set(critical_missing)))
     danger_signals.append(
-        "🛡️ **安全防错机制启动**：部分宏观数据源响应异常，系统已自动降级防守。"
+        f"🛡️ **宏观数据不完整，风险评分自动降级防守**：无法获取 {tickers}。"
     )
-
   return danger_count, danger_signals
-
 
 def evaluate_action_advice(danger_count):
   """【智能操作建议引擎】"""
